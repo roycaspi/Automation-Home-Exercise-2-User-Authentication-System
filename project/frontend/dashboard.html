@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="dashboard-container">
+    <h2>Welcome</h2>
+    <p id="user-info"></p>
+    <button onclick="logout()">Logout</button>
+  </div>
+    <script>
+    function tokenIsExpired(token) {
+      try {
+        // JWT payload is base64 between the first and second “.” 
+        const payloadBase64 = token.split('.')[1];
+        const payloadJson  = atob(payloadBase64);
+        const payload      = JSON.parse(payloadJson);
+        // payload.exp is in seconds since Unix epoch
+        return (payload.exp * 1000) < Date.now();
+      } catch(e) {
+        return true;
+      }
+    }
+
+    async function loadDashboard() {
+      const token = localStorage.getItem('token');
+      if (!token || tokenIsExpired(token)) {
+        // If there’s no token or it’s expired, force a re-login
+        localStorage.removeItem('token');
+        window.location.href = 'index.html';
+        return;
+      }
+
+      const res = await fetch('http://localhost:5000/dashboard', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      console.log(res)
+      if (!res.ok) {
+        localStorage.removeItem('token');
+        window.location.href = 'index.html';
+        return;
+      }
+      const data = await res.json();
+      document.getElementById('user-info').textContent =
+        `Email: ${data.email}, Joined: ${data.created_at}`;
+    }
+
+    function logout() {
+      localStorage.removeItem('token');
+      window.location.href = 'index.html';
+    }
+
+    loadDashboard();
+  </script>
+</body>
+</html>
