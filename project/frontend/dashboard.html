@@ -1,27 +1,100 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Dashboard</title>
-  <link rel="stylesheet" href="styles.css">
+
+  <!-- Prevent caching -->
+  <meta http-equiv="Cache-Control" content="no-store" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+
+  <!-- Google Font -->
+  <link rel="preconnect" href="https://fonts.gstatic.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap"
+    rel="stylesheet"
+  />
+
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .view { display: none; }
+    .view.active { display: block; }
+  </style>
 </head>
 <body>
-  <div class="dashboard-container">
-    <h2>Welcome</h2>
-    <p id="user-info"></p>
-    <button onclick="logout()">Logout</button>
+  <div class="page-wrapper">
+    <div class="card dashboard-card">
+
+      <!-- ───── DASHBOARD VIEW ───── -->
+      <div id="dashboard-view" class="view active">
+        <h2 class="card-title">Dashboard</h2>
+        <p id="user-info" class="user-info"></p>
+        <div class="button-group">
+          <button class="button outline" id="show-profile">
+            Edit Profile
+          </button>
+          <button class="button danger" onclick="logout()">
+            Logout
+          </button>
+        </div>
+      </div>
+
+      <!-- ───── EDIT PROFILE VIEW ───── -->
+      <div id="profile-view" class="view">
+        <h2 class="card-title">Edit Profile</h2>
+        <form id="profile-reset-form" class="form" autocomplete="off">
+          <label>
+            <span>New Password</span>
+            <input
+              type="password"
+              id="profile-new-password"
+              placeholder="••••••••"
+              autocomplete="new-password"
+              required
+            />
+          </label>
+          <label>
+            <span>Confirm Password</span>
+            <input
+              type="password"
+              id="profile-confirm-password"
+              placeholder="••••••••"
+              autocomplete="new-password"
+              required
+            />
+          </label>
+          <button type="submit" class="button primary">
+            Update Password
+          </button>
+        </form>
+        <p class="coming-soon">More profile settings coming soon…</p>
+        <div class="links-row">
+          <button class="link-btn" id="show-dashboard">Back to Dashboard</button>
+        </div>
+      </div>
+
+    </div>
   </div>
-    <script>
+
+  <script>
+    const API_URL = 'http://localhost:5000';
+
+    function showView(viewId) {
+      document.querySelectorAll('.view').forEach(el => {
+        el.classList.remove('active');
+      });
+      document.getElementById(viewId).classList.add('active');
+    }
+
     function tokenIsExpired(token) {
       try {
-        // JWT payload is base64 between the first and second “.” 
         const payloadBase64 = token.split('.')[1];
-        const payloadJson  = atob(payloadBase64);
-        const payload      = JSON.parse(payloadJson);
-        // payload.exp is in seconds since Unix epoch
-        return (payload.exp * 1000) < Date.now();
-      } catch(e) {
+        const payloadJson = atob(payloadBase64);
+        const payload = JSON.parse(payloadJson);
+        return payload.exp * 1000 < Date.now();
+      } catch (e) {
         return true;
       }
     }
@@ -29,31 +102,112 @@
     async function loadDashboard() {
       const token = localStorage.getItem('token');
       if (!token || tokenIsExpired(token)) {
-        // If there’s no token or it’s expired, force a re-login
+        alert('Your session has expired. Please log in again.');
         localStorage.removeItem('token');
         window.location.href = 'index.html';
         return;
       }
 
-      const res = await fetch('http://localhost:5000/dashboard', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      console.log(res)
-      if (!res.ok) {
+      try {
+        const res = await fetch(`${API_URL}/dashboard`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          const msg = data.error || data.msg || 'Unable to load dashboard.';
+          alert(msg);
+          localStorage.removeItem('token');
+          window.location.href = 'index.html';
+          return;
+        }
+
+        // Insert a newline; CSS will show it correctly
+        document.getElementById('user-info').textContent =
+          `Email: ${data.email}\nJoined: ${data.created_at}`;
+      } catch (err) {
+        console.error('Dashboard fetch error:', err);
+        alert('Network error: could not reach the server.');
         localStorage.removeItem('token');
         window.location.href = 'index.html';
-        return;
       }
-      const data = await res.json();
-      document.getElementById('user-info').textContent =
-        `Email: ${data.email}, Joined: ${data.created_at}`;
     }
+
+    // Event‐wiring after DOM is ready
+    window.addEventListener('DOMContentLoaded', () => {
+      document
+        .getElementById('show-profile')
+        .addEventListener('click', () => {
+          // Clear fields before showing
+          document.getElementById('profile-new-password').value = '';
+          document.getElementById('profile-confirm-password').value = '';
+          showView('profile-view');
+        });
+
+      document
+        .getElementById('show-dashboard')
+        .addEventListener('click', () => showView('dashboard-view'));
+
+      document
+        .getElementById('profile-reset-form')
+        .addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const token = localStorage.getItem('token');
+          if (!token || tokenIsExpired(token)) {
+            alert('Your session is invalid. Please log in again.');
+            localStorage.removeItem('token');
+            window.location.href = 'index.html';
+            return;
+          }
+
+          const newPassword = document
+            .getElementById('profile-new-password')
+            .value.trim();
+          const confirmPassword = document
+            .getElementById('profile-confirm-password')
+            .value.trim();
+          if (!newPassword || newPassword !== confirmPassword) {
+            alert('Passwords do not match or are empty.');
+            return;
+          }
+
+          try {
+            const res = await fetch(`${API_URL}/profile`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`
+              },
+              body: JSON.stringify({ password: newPassword })
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+              alert(data.message || 'Password updated successfully.');
+              showView('dashboard-view');
+            } else {
+              const msg = data.error || data.msg || 'Could not update password.';
+              alert(msg);
+              if (res.status === 401 || res.status === 422) {
+                localStorage.removeItem('token');
+                window.location.href = 'index.html';
+              }
+            }
+          } catch (err) {
+            console.error('Profile update error:', err);
+            alert('Network error: could not reach the server.');
+            localStorage.removeItem('token');
+            window.location.href = 'index.html';
+          }
+        });
+    });
 
     function logout() {
       localStorage.removeItem('token');
       window.location.href = 'index.html';
     }
 
+    // Kick off initial data load
     loadDashboard();
   </script>
 </body>

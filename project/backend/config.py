@@ -6,8 +6,10 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'supersecret')
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=2)
-    MAIL_SERVER = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
+    MAIL_SERVER = 'smtp.gmail.com'
     MAIL_PORT = 587
     MAIL_USE_TLS = True
-    MAIL_USERNAME = os.getenv('MAIL_USERNAME')
-    MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
+    MAIL_USE_SSL  = False
+    MAIL_USERNAME = 'caspi27@gmail.com'
+    MAIL_PASSWORD = 'glxcshpnxxxvkgsv'
+    MAIL_DEFAULT_SENDER = MAIL_USERNAME
