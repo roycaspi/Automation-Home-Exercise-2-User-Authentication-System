@@ -1,6 +1,6 @@
 # User Authentication System
 
-A full-stack user authentication system built with Flask (Python backend) and JavaScript/HTML/CSS (frontend). This system supports user registration with email verification, JWT-based login/logout, password reset, and a protected dashboard. Designed to be clear, modular, and easily extendable.
+A full-stack user authentication system built with Flask (Python backend) and vanilla JavaScript/HTML/CSS (frontend). This system supports user registration with email verification, JWT-based login/logout, password reset, and a protected dashboard. Designed to be clear, modular, and easily extendable.
 
 ---
 
@@ -102,6 +102,7 @@ Tests include:
 
 ---
 
+---
 
 ## 📸 Screenshots
 
@@ -130,3 +131,25 @@ Tests include:
 ## ✍️ Author
 
 Roy Caspi
+
+
+## Configuring Gmail for Email Verification
+
+To enable email verification using your Gmail account, follow these steps:
+
+1. **Enable 2-Step Verification** on your Google account:
+   - Go to [https://myaccount.google.com/security](https://myaccount.google.com/security)
+   - Under "Signing in to Google", enable 2-Step Verification.
+
+2. **Generate an App Password**:
+   - After enabling 2-Step Verification, go to [App Passwords](https://myaccount.google.com/apppasswords)
+   - Choose "Mail" as the app and "Other" for the device, then name it appropriately (e.g., "Flask App").
+   - Click "Generate" and copy the 16-character password shown.
+
+3. **Update your `config.py`**:
+   - Replace the `MAIL_PASSWORD` field with the generated app password.
+   - Make sure `MAIL_USERNAME` is your full Gmail address.
+
+> ⚠️ Do **not** share or commit your app password. It should be treated securely just like your main account password.
+
+Once configured correctly, your app will be able to send email verification messages using Gmail.
