@@ -1,14 +1,11 @@
-# backend/routes.py
-
 import secrets
 from datetime import datetime, timedelta
-
-from flask import Blueprint, request, jsonify, redirect, current_app
+from flask import Blueprint, request, jsonify, current_app
 from flask_mail import Message
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
-
 from extensions import db, bcrypt, mail, limiter
 from models import User, PasswordResetToken
+import re
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -29,12 +26,17 @@ def register():
 
     if User.query.filter_by(email=email).first():
         return jsonify({'error': 'User already exists'}), 409
+    
+    # Enforce basic password strength requirements
+    if len(password) < 8 or not re.search(r"[A-Z]", password) or not re.search(r"[a-z]", password) \
+        or not re.search(r"[0-9]", password) or not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        return jsonify({'error': 'Password must be at least 8 characters long and include uppercase, lowercase, number, and special character.'}), 400
 
     # Create user with verified=False
     hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
     new_user = User(email=email, password=hashed_password, verified=False)
     db.session.add(new_user)
-    db.session.commit()  # Now new_user.id exists
+    db.session.commit()
 
     # Create email verification token (expires in 24 hours)
     token = secrets.token_urlsafe(32)
@@ -46,21 +48,21 @@ def register():
     )
     db.session.add(verification_token)
     db.session.commit()
-
-    # Send verification email
-    verify_link = f"http://localhost:5000/verify-email/{token}"
-    msg = Message(
-        subject='Verify Your Email',
-        sender=current_app.config['MAIL_DEFAULT_SENDER'],
-        recipients=[email]
-    )
-    msg.body = (
-        "Thank you for registering!\n\n"
-        "Please click the link below to verify your email and complete registration:\n\n"
-        f"{verify_link}\n\n"
-        "This link will expire in 24 hours."
-    )
-    mail.send(msg)
+    # Only send email if not running tests
+    if not current_app.config.get('TESTING', False):
+        verify_link = f"http://localhost:5000/verify-email/{token}"
+        msg = Message(
+            subject='Verify Your Email',
+            sender=current_app.config['MAIL_DEFAULT_SENDER'],
+            recipients=[email]
+        )
+        msg.body = (
+            "Thank you for registering!\n\n"
+            "Please click the link below to verify your email and complete registration:\n\n"
+            f"{verify_link}\n\n"
+            "This link will expire in 24 hours."
+        )
+        mail.send(msg)
 
     return (
         jsonify({'message': 'Registration successful! Please check your inbox to verify your email before logging in.'}),
@@ -162,23 +164,26 @@ def reset_password_request():
         recipients=[email]
     )
     msg.body = f"Click here to reset your password: {reset_link}"
-    mail.send(msg)
+    # Only send email if not running tests
+    if not current_app.config.get("TESTING", False):
+        mail.send(msg)
 
     return jsonify({'message': 'If that email is registered, a reset link has been sent.'})
 
 
 @auth_bp.route('/reset-password/<token>', methods=['POST'])
 def reset_password(token):
-    """
-    Complete password reset: consume the token and set a new password.
-    Expected JSON body: { "password": "...", "confirm": "..." }
-    """
     data = request.get_json()
     password = data.get('password')
     confirm = data.get('confirm')
 
     if not password or password != confirm:
         return jsonify({'error': 'Passwords must match and be valid.'}), 400
+    
+    # Enforce basic password strength requirements
+    if len(password) < 8 or not re.search(r"[A-Z]", password) or not re.search(r"[a-z]", password) \
+        or not re.search(r"[0-9]", password) or not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        return jsonify({'error': 'Password must be at least 8 characters long and include uppercase, lowercase, number, and special character.'}), 400
 
     prt = PasswordResetToken.query.filter_by(token=token).first()
     if not prt or prt.expires_at < datetime.utcnow():
@@ -211,6 +216,11 @@ def profile():
     new_password = data.get('password')
     if not new_password:
         return jsonify({'error': 'No update data provided'}), 400
+    
+    # Enforce basic password strength requirements
+    if len(new_password) < 8 or not re.search(r"[A-Z]", new_password) or not re.search(r"[a-z]", new_password) \
+        or not re.search(r"[0-9]", new_password) or not re.search(r"[!@#$%^&*(),.?\":{}|<>]", new_password):
+        return jsonify({'error': 'Password must be at least 8 characters long and include uppercase, lowercase, number, and special character.'}), 400
 
     user.password = bcrypt.generate_password_hash(new_password).decode('utf-8')
     db.session.commit()

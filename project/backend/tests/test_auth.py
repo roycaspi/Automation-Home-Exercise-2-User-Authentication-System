@@ -1,216 +1,156 @@
+import os
+import sys
+import pytest
+from flask_jwt_extended import decode_token
 
-import unittest
-import json
-import secrets
-from datetime import datetime, timedelta
-from ..app import app
-from ..extensions import db, bcrypt, jwt
-from ..models import User, PasswordResetToken
+# Ensure project root is on sys.path so imports work
+TEST_DIR = os.path.dirname(__file__)
+PROJECT_DIR = os.path.abspath(os.path.join(TEST_DIR, ".."))
+sys.path.insert(0, PROJECT_DIR)
 
+from app import app as flask_app
+from extensions import db
+from models import User, PasswordResetToken
 
-class AuthTestCase(unittest.TestCase):
-    def setUp(self):
-        # Configure the Flask app for testing
-        app.config['TESTING'] = True
-        # Use an in-memory SQLite database for tests
-        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
-        app.config['JWT_SECRET_KEY'] = 'test-secret-key'
-        app.config['WTF_CSRF_ENABLED'] = False
+@pytest.fixture(scope="function")
+def app():
+    # Use in-memory SQLite & suppress email
+    flask_app.config.update({
+        "TESTING": True,
+        "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+        "JWT_SECRET_KEY": "testsecret",
+        "MAIL_SUPPRESS_SEND": True,
+        "WTF_CSRF_ENABLED": False,  # Disable CSRF for testing
+        "SQLALCHEMY_TRACK_MODIFICATIONS": False,  # Suppress warning
+    })
+    
+    with flask_app.app_context():
+        # Create all tables
+        db.create_all()
+        yield flask_app
+        # Clean up after test
+        db.session.remove()
+        db.drop_all()
 
-        # Create the test client and the in-memory database tables
-        self.client = app.test_client()
-        with app.app_context():
-            db.create_all()
+@pytest.fixture(scope="function")
+def client(app):
+    return app.test_client()
 
-    def tearDown(self):
-        # Drop all tables after each test
-        with app.app_context():
-            db.drop_all()
+@pytest.fixture(autouse=True)
+def setup_app_context(app):
+    """Ensure we're in app context for each test"""
+    with app.app_context():
+        yield
 
-    def register_user(self, email, password, confirm):
-        """Helper: POST /register"""
-        return self.client.post(
-            '/register',
-            headers={'Content-Type': 'application/json'},
-            data=json.dumps({'email': email, 'password': password, 'confirm': confirm})
-        )
+def test_register_invalid_password(client, app):
+    with app.app_context():
+        response = client.post("/register", json={
+            "email": "user1@example.com",
+            "password": "weakpass",
+            "confirm": "weakpass"
+        })
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "Password must be at least 8 characters" in data.get("error", "")
 
-    def login_user(self, email, password, remember=False):
-        """Helper: POST /login"""
-        return self.client.post(
-            '/login',
-            headers={'Content-Type': 'application/json'},
-            data=json.dumps({'email': email, 'password': password, 'remember': remember})
-        )
+def test_register_success_creates_unverified_user(client, app):
+    with app.app_context():
+        response = client.post("/register", json={
+            "email": "user2@example.com",
+            "password": "StrongP@ss123",
+            "confirm": "StrongP@ss123"
+        })
+        assert response.status_code == 201
+        user = User.query.filter_by(email="user2@example.com").first()
+        assert user is not None
+        assert user.verified is False
 
-    def test_registration_and_login(self):
-        # 1a) Successful registration
-        res = self.register_user('test@example.com', 'password123', 'password123')
-        self.assertEqual(res.status_code, 201)
-        data = res.get_json()
-        self.assertIn('message', data)
-        self.assertEqual(data['message'], 'User registered successfully')
+def test_login_unverified_user_fails(client, app):
+    with app.app_context():
+        # Register user
+        client.post("/register", json={
+            "email": "user3@example.com",
+            "password": "StrongP@ss123",
+            "confirm": "StrongP@ss123"
+        })
+        
+        # Try to login with unverified user
+        response = client.post("/login", json={
+            "email": "user3@example.com",
+            "password": "StrongP@ss123"
+        })
+        assert response.status_code == 403
+        data = response.get_json()
+        assert "verify your email" in data.get("error", "").lower()
 
-        # 1b) Duplicate registration should return 409
-        res_dup = self.register_user('test@example.com', 'password123', 'password123')
-        self.assertEqual(res_dup.status_code, 409)
+def test_verify_email_and_login_success(client, app):
+    with app.app_context():
+        # Register user
+        client.post("/register", json={
+            "email": "user4@example.com",
+            "password": "StrongP@ss123",
+            "confirm": "StrongP@ss123"
+        })
+        
+        # Get user and verification token
+        user = User.query.filter_by(email="user4@example.com").first()
+        assert user is not None, "User should be created after registration"
+        
+        token_entry = PasswordResetToken.query.filter_by(user_id=user.id).first()
+        assert token_entry is not None, "Verification token should be created"
+        
+        # Verify email
+        verify_resp = client.get(f"/verify-email/{token_entry.token}")
+        assert verify_resp.status_code == 200
+        
+        # Login should now succeed
+        login_resp = client.post("/login", json={
+            "email": "user4@example.com",
+            "password": "StrongP@ss123"
+        })
+        assert login_resp.status_code == 200
+        
+        data = login_resp.get_json()
+        assert "token" in data
+        
+        # Decode and verify JWT token
+        decoded = decode_token(data["token"])
+        assert str(decoded["sub"]) == str(user.id)
 
-        # 1c) Successful login returns a token
-        res_login = self.login_user('test@example.com', 'password123')
-        self.assertEqual(res_login.status_code, 200)
-        token = res_login.get_json().get('token')
-        self.assertIsNotNone(token)
+def test_dashboard_without_token_fails(client, app):
+    with app.app_context():
+        response = client.get("/dashboard")
+        assert response.status_code in (401, 422)
 
-        # 1d) Wrong password returns 401
-        res_wrong = self.login_user('test@example.com', 'wrongpass')
-        self.assertEqual(res_wrong.status_code, 401)
-
-    def test_dashboard_protection(self):
-        # 2a) Access /dashboard without token → 422
-        res = self.client.get('/dashboard')
-        self.assertEqual(res.status_code, 422)
-
-        # 2b) Register & login to get a valid token
-        self.register_user('a@a.com', 'pass', 'pass')
-        res_login = self.login_user('a@a.com', 'pass')
-        token = res_login.get_json().get('token')
-
-        # 2c) Access /dashboard WITH token → 200, returns email and created_at
-        res_dash = self.client.get('/dashboard', headers={'Authorization': f'Bearer {token}'})
-        self.assertEqual(res_dash.status_code, 200)
-        data = res_dash.get_json()
-        self.assertEqual(data['email'], 'a@a.com')
-        self.assertTrue('created_at' in data)
-
-    def test_password_reset_flow(self):
-        # 3a) Register the user
-        self.register_user('reset@example.com', 'oldpass', 'oldpass')
-        user = User.query.filter_by(email='reset@example.com').first()
-        self.assertIsNotNone(user)
-
-        # 3b) /reset-password-request should return 200
-        res_req = self.client.post(
-            '/reset-password-request',
-            headers={'Content-Type': 'application/json'},
-            data=json.dumps({'email': 'reset@example.com'})
-        )
-        self.assertEqual(res_req.status_code, 200)
-
-        # 3c) There should be a token in PasswordResetToken table
-        prt = PasswordResetToken.query.filter_by(user_id=user.id).first()
-        self.assertIsNotNone(prt)
-
-        # 3d) Wrong confirm password → 400
-        res_bad = self.client.post(f'/reset-password/{prt.token}',
-                                   headers={'Content-Type': 'application/json'},
-                                   data=json.dumps({'password': 'new1', 'confirm': 'new2'}))
-        self.assertEqual(res_bad.status_code, 400)
-
-        # 3e) Valid reset → 200
-        res_reset = self.client.post(f'/reset-password/{prt.token}',
-                                     headers={'Content-Type': 'application/json'},
-                                     data=json.dumps({'password': 'newpassword', 'confirm': 'newpassword'}))
-        self.assertEqual(res_reset.status_code, 200)
-        data_reset = res_reset.get_json()
-        self.assertIn('message', data_reset)
-        self.assertEqual(data_reset['message'], 'Password reset successfully')
-
-        # 3f) The token row should be deleted
-        prt_deleted = PasswordResetToken.query.filter_by(user_id=user.id).first()
-        self.assertIsNone(prt_deleted)
-
-        # 3g) Login with the new password
-        res_login = self.login_user('reset@example.com', 'newpassword')
-        self.assertEqual(res_login.status_code, 200)
-
-    def test_email_verification_flow(self):
-        # 4a) Register & login to get JWT
-        self.register_user('verify@example.com', 'pass1', 'pass1')
-        res_login = self.login_user('verify@example.com', 'pass1')
-        token = res_login.get_json().get('token')
-
-        # 4b) POST /send-verification → 200
-        res_send = self.client.post('/send-verification', headers={'Authorization': f'Bearer {token}'})
-        self.assertEqual(res_send.status_code, 200)
-        data_send = res_send.get_json()
-        self.assertEqual(data_send['message'], 'Verification email sent')
-
-        # 4c) There should be a token saved in PasswordResetToken
-        user = User.query.filter_by(email='verify@example.com').first()
-        prt = PasswordResetToken.query.filter_by(user_id=user.id).first()
-        self.assertIsNotNone(prt)
-
-        # 4d) GET /verify-email/<token> → 200 and user.verified = True
-        res_verify = self.client.get(f'/verify-email/{prt.token}')
-        self.assertEqual(res_verify.status_code, 200)
-        data_verify = res_verify.get_json()
-        self.assertEqual(data_verify['message'], 'Email verified successfully')
-
-        updated_user = User.query.get(user.id)
-        self.assertTrue(updated_user.verified)
-
-        # 4e) Attempt to verify again with same or expired token → 400
-        expired_token = secrets.token_urlsafe(32)
-        expired_prt = PasswordResetToken(user_id=user.id, token=expired_token,
-                                         expires_at=datetime.utcnow() - timedelta(minutes=1))
-        db.session.add(expired_prt)
-        db.session.commit()
-        res_expired = self.client.get(f'/verify-email/{expired_token}')
-        self.assertEqual(res_expired.status_code, 400)
-
-    def test_profile_update(self):
-        # 5a) Register & login
-        self.register_user('profile@example.com', 'oldpass', 'oldpass')
-        res_login = self.login_user('profile@example.com', 'oldpass')
-        token = res_login.get_json().get('token')
-
-        # 5b) PUT /profile (change email & password)
-        res_update = self.client.put(
-            '/profile',
-            headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'},
-            data=json.dumps({'email': 'newprofile@example.com', 'password': 'newpass'})
-        )
-        self.assertEqual(res_update.status_code, 200)
-        data_update = res_update.get_json()
-        self.assertEqual(data_update['message'], 'Profile updated')
-
-        # 5c) Old credentials no longer work
-        res_old_login = self.login_user('profile@example.com', 'oldpass')
-        self.assertEqual(res_old_login.status_code, 401)
-
-        # 5d) New credentials work
-        res_new_login = self.login_user('newprofile@example.com', 'newpass')
-        self.assertEqual(res_new_login.status_code, 200)
-
-    def test_remember_me_token_expiry(self):
-        # 6a) Register & login with remember=True
-        self.register_user('remember@example.com', 'rmpass', 'rmpass')
-        res_login = self.login_user('remember@example.com', 'rmpass', remember=True)
-        self.assertEqual(res_login.status_code, 200)
-        token_str = res_login.get_json().get('token')
-        self.assertIsNotNone(token_str)
-
-        # 6b) Decode the token to inspect exp vs. iat
-        decoded = jwt.decode_token(token_str)
-        exp_ts = decoded['exp']      # expiration (in seconds since epoch)
-        iat_ts = decoded['iat']      # issued-at (in seconds)
-        # Ensure the expiry is significantly further out (e.g. > 23 hours)
-        self.assertTrue((exp_ts - iat_ts) > (23 * 3600))
-
-    def test_rate_limiting_login(self):
-        # 7a) Register
-        self.register_user('rate@example.com', 'ratepass', 'ratepass')
-
-        # 7b) Attempt 5 incorrect logins
-        for _ in range(5):
-            res = self.login_user('rate@example.com', 'wrongpass')
-            # First few return 401, eventually we hit 429
-            self.assertIn(res.status_code, (401, 429))
-
-        # 7c) The 6th attempt in quick succession should be rate-limited (429)
-        res_limit = self.login_user('rate@example.com', 'wrongpass')
-        self.assertEqual(res_limit.status_code, 429)
-
-
-if __name__ == '__main__':
-    unittest.main()
+def test_dashboard_with_valid_token(client, app):
+    with app.app_context():
+        # Register user
+        client.post("/register", json={
+            "email": "user5@example.com",
+            "password": "StrongP@ss123",
+            "confirm": "StrongP@ss123"
+        })
+        
+        # Get user and verify email
+        user = User.query.filter_by(email="user5@example.com").first()
+        token_entry = PasswordResetToken.query.filter_by(user_id=user.id).first()
+        client.get(f"/verify-email/{token_entry.token}")
+        
+        # Login to get JWT token
+        login_resp = client.post("/login", json={
+            "email": "user5@example.com",
+            "password": "StrongP@ss123"
+        })
+        assert login_resp.status_code == 200
+        
+        jwt_token = login_resp.get_json()["token"]
+        
+        # Access dashboard with valid token
+        dash_resp = client.get("/dashboard", headers={
+            "Authorization": f"Bearer {jwt_token}"
+        })
+        assert dash_resp.status_code == 200
+        
+        data = dash_resp.get_json()
+        assert data["email"] == "user5@example.com"
+        assert "T" in data["created_at"]

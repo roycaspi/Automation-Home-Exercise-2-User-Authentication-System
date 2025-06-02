@@ -5,12 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Auth & Reset</title>
 
-  <!-- Prevent caching -->
-  <meta http-equiv="Cache-Control" content="no-store" />
-  <meta http-equiv="Pragma" content="no-cache" />
-  <meta http-equiv="Expires" content="0" />
 
-  <!-- Google Font -->
   <link rel="preconnect" href="https://fonts.gstatic.com" />
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap"
@@ -27,7 +22,6 @@
 <body>
   <div class="page-wrapper">
     <div class="card auth-card">
-      <!-- ───── LOGIN VIEW ───── -->
       <div id="login-view" class="view active">
         <h2 class="card-title">Login</h2>
         <form id="login-form" class="form" autocomplete="off">
@@ -66,7 +60,6 @@
         </div>
       </div>
 
-      <!-- ───── REGISTER VIEW ───── -->
       <div id="register-view" class="view">
         <h2 class="card-title">Register</h2>
         <form id="register-form" class="form" autocomplete="off">
@@ -109,7 +102,6 @@
         </div>
       </div>
 
-      <!-- ─── RESET‐REQUEST VIEW ─── -->
       <div id="reset-request-view" class="view">
         <h2 class="card-title">Forgot Password</h2>
         <p class="card-subtitle">
@@ -137,7 +129,6 @@
         </div>
       </div>
 
-      <!-- ─── RESET‐PASSWORD VIEW ─── -->
       <div id="reset-password-view" class="view">
         <h2 class="card-title">Set New Password</h2>
         <form id="reset-password-form" class="form" autocomplete="off">
@@ -176,7 +167,6 @@
 
   <script src="script.js"></script>
   <script>
-    // ────────────── View‐switcher helpers ──────────────
     function showView(viewId) {
       document.querySelectorAll('.view').forEach((el) => {
         el.classList.remove('active');
@@ -184,7 +174,6 @@
       document.getElementById(viewId).classList.add('active');
     }
 
-    // Wire up buttons once DOM is ready:
     window.addEventListener('DOMContentLoaded', () => {
       document
         .getElementById('show-reset-request')

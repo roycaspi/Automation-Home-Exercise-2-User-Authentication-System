@@ -5,12 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Dashboard</title>
 
-  <!-- Prevent caching -->
-  <meta http-equiv="Cache-Control" content="no-store" />
-  <meta http-equiv="Pragma" content="no-cache" />
-  <meta http-equiv="Expires" content="0" />
-
-  <!-- Google Font -->
   <link rel="preconnect" href="https://fonts.gstatic.com" />
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap"
@@ -27,7 +21,6 @@
   <div class="page-wrapper">
     <div class="card dashboard-card">
 
-      <!-- ───── DASHBOARD VIEW ───── -->
       <div id="dashboard-view" class="view active">
         <h2 class="card-title">Dashboard</h2>
         <p id="user-info" class="user-info"></p>
@@ -41,7 +34,6 @@
         </div>
       </div>
 
-      <!-- ───── EDIT PROFILE VIEW ───── -->
       <div id="profile-view" class="view">
         <h2 class="card-title">Edit Profile</h2>
         <form id="profile-reset-form" class="form" autocomplete="off">
@@ -122,7 +114,6 @@
           return;
         }
 
-        // Insert a newline; CSS will show it correctly
         document.getElementById('user-info').textContent =
           `Email: ${data.email}\nJoined: ${data.created_at}`;
       } catch (err) {
@@ -207,7 +198,6 @@
       window.location.href = 'index.html';
     }
 
-    // Kick off initial data load
     loadDashboard();
   </script>
 </body>
